@@ -1,0 +1,59 @@
+#!/bin/bash
+
+# CONFIG
+NEXUS_URL="http://localhost:8081"
+USERNAME="admin"
+PASSWORD="admin123"
+
+# HEADER
+echo "Repository,Group,Artifact,Version,Type(Path),Size(Bytes)"
+
+# Get all hosted repositories
+repos=$(curl -s -u "$USERNAME:$PASSWORD" "$NEXUS_URL/service/rest/v1/repositories" | \
+  grep -E '"name"|"type"' | paste - - | grep '"type": "hosted"' | sed -E 's/.*"name": *"([^"]+)".*/\1/')
+
+# Loop through each repo
+for repo in $repos; do
+  continuation=""
+
+  while true; do
+    if [ -z "$continuation" ]; then
+      url="$NEXUS_URL/service/rest/v1/components?repository=$repo"
+    else
+      url="$NEXUS_URL/service/rest/v1/components?repository=$repo&continuationToken=$continuation"
+    fi
+
+    response=$(curl -s -u "$USERNAME:$PASSWORD" "$url")
+
+    echo "$response" | awk -v repo="$repo" '
+    BEGIN { RS="{"; FS="," }
+    /"name":/ && /version/ {
+      name = version = path = size = group = ""
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /"name"/ && name == "") {
+          gsub(/.*"name": *"/, "", $i); gsub(/".*/, "", $i); name=$i
+        }
+        if ($i ~ /"version"/ && version == "") {
+          gsub(/.*"version": *"/, "", $i); gsub(/".*/, "", $i); version=$i
+        }
+        if ($i ~ /"group"/ && group == "") {
+          gsub(/.*"group": *"/, "", $i); gsub(/".*/, "", $i); group=$i
+        }
+        if ($i ~ /"path"/ && path == "") {
+          gsub(/.*"path": *"/, "", $i); gsub(/".*/, "", $i); path=$i
+        }
+        if ($i ~ /"size"/ && size == "") {
+          gsub(/[^0-9]/, "", $i); size=$i
+        }
+      }
+      if (name && version && path) {
+        type = (version ~ /SNAPSHOT/) ? "Snapshot" : "Release"
+        print repo "," group "," name "," version "," type "," size
+      }
+    }'
+
+    continuation=$(echo "$response" | grep -o '"continuationToken":"[^"]*"' | cut -d':' -f2 | tr -d '"')
+
+    [ -z "$continuation" ] && break
+  done
+done
