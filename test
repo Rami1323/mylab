@@ -1,18 +1,25 @@
 #!/bin/bash
 
-# CONFIG
+# --------------------------------------------
+# CONFIGURATION
+# --------------------------------------------
 NEXUS_URL="http://localhost:8081"
 USERNAME="admin"
-PASSWORD="admin123"
+PASSWORD="N3xus@2024"
+OUTPUT="nexus_report.csv"
 
-# HEADER
-echo "Repository,Group,Artifact,Version,Type(Path),Size(Bytes)"
+# --------------------------------------------
+# INIT
+# --------------------------------------------
+echo "Repository,Artifact,Version,Path,Type,Size(Bytes)" > "$OUTPUT"
 
 # Get all hosted repositories
 repos=$(curl -s -u "$USERNAME:$PASSWORD" "$NEXUS_URL/service/rest/v1/repositories" | \
   grep -E '"name"|"type"' | paste - - | grep '"type": "hosted"' | sed -E 's/.*"name": *"([^"]+)".*/\1/')
 
-# Loop through each repo
+# --------------------------------------------
+# LOOP THROUGH HOSTED REPOSITORIES
+# --------------------------------------------
 for repo in $repos; do
   continuation=""
 
@@ -25,19 +32,17 @@ for repo in $repos; do
 
     response=$(curl -s -u "$USERNAME:$PASSWORD" "$url")
 
+    # Parse and extract values using AWK
     echo "$response" | awk -v repo="$repo" '
     BEGIN { RS="{"; FS="," }
     /"name":/ && /version/ {
-      name = version = path = size = group = ""
+      name = version = path = size = ""
       for (i = 1; i <= NF; i++) {
         if ($i ~ /"name"/ && name == "") {
           gsub(/.*"name": *"/, "", $i); gsub(/".*/, "", $i); name=$i
         }
         if ($i ~ /"version"/ && version == "") {
           gsub(/.*"version": *"/, "", $i); gsub(/".*/, "", $i); version=$i
-        }
-        if ($i ~ /"group"/ && group == "") {
-          gsub(/.*"group": *"/, "", $i); gsub(/".*/, "", $i); group=$i
         }
         if ($i ~ /"path"/ && path == "") {
           gsub(/.*"path": *"/, "", $i); gsub(/".*/, "", $i); path=$i
@@ -48,12 +53,14 @@ for repo in $repos; do
       }
       if (name && version && path) {
         type = (version ~ /SNAPSHOT/) ? "Snapshot" : "Release"
-        print repo "," group "," name "," version "," type "," size
+        printf "%s,%s,%s,%s,%s,%s\n", repo, name, version, path, type, size
       }
-    }'
+    }' >> "$OUTPUT"
 
     continuation=$(echo "$response" | grep -o '"continuationToken":"[^"]*"' | cut -d':' -f2 | tr -d '"')
 
     [ -z "$continuation" ] && break
   done
 done
+
+echo "✅ Report saved to: $OUTPUT"
