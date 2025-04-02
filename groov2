@@ -1,0 +1,33 @@
+node('powershell') {
+    def lastSuccessfulBuild = currentBuild.getPreviousSuccessfulBuild()
+    def lastStartTime = ''
+
+    if (lastSuccessfulBuild) {
+        lastStartTime = new Date(lastSuccessfulBuild.getStartTimeInMillis()).format('yyyy-MM-dd HH:mm:ss')
+        echo "Last successful build time: ${lastStartTime}"
+    } else {
+        lastStartTime = new Date().format('yyyy-MM-dd HH:mm:ss')
+        echo "⚠️ No previous successful build. Using current time: ${lastStartTime}"
+    }
+
+    git branch: 'jenkins_scheduled_tasks_nexus', credentialsId: 'e5cdc1ec-5c97-4573-adfb-375e019ddcc9',
+        url: 'https://github.thehartford.com/HIG/cto_sdf_admin_docs'
+
+    withCredentials([
+        usernamePassword(credentialsId: 'nx_deploypromote', passwordVariable: 'nx_token', usernameVariable: 'nx_user'),
+        usernamePassword(credentialsId: 'nx_prod_deploypromote', passwordVariable: 'nx_prod_token', usernameVariable: 'nx_prod_user'),
+        usernamePassword(credentialsId: 'UDeploy_Admin', passwordVariable: 'udpPass', usernameVariable: 'udpUser'),
+        usernamePassword(credentialsId: 'dataGathering', passwordVariable: 'sqlPass', usernameVariable: 'sqlUser'),
+        usernamePassword(credentialsId: '4a6efe42-66c8-4ead-9f46-d71d18e32695', passwordVariable: 'iqPass', usernameVariable: 'iqUser'),
+    ]) {
+        powershell """
+        & "\${env.WORKSPACE}\\scripts\\uDeploy\\UI_Scheduled_Tasks\\Nexus_Operate_Scan\\Nexus_Operate_Promote.ps1" `
+            -nx_user "\${env.nx_user}" -nx_token "\${env.nx_token}" `
+            -nx_prod_user "\${env.nx_prod_user}" -nx_prod_token "\${env.nx_prod_token}" `
+            -udpUser "\${env.udpUser}" -udpPass "\${env.udpPass}" `
+            -sqlUser "\${env.sqlUser}" -sqlPass "\${env.sqlPass}" `
+            -iqUser "\${env.iqUser}" -iqPass "\${env.iqPass}" `
+            -startTime "${lastStartTime}"
+        """
+    }
+}
